@@ -1,0 +1,199 @@
+<?php
+
+/**
+ * @file
+ * Provides a Google News sitemap within your site using the url:
+ * http://www.yoursite.com/googlenews.xml
+ *
+ * Modified from https://drupal.org/project/googlenews  7.x-1.4 (dev) by info@musemagic.com
+ * 
+ * Purpose to allow exlusion from Google news based on meta tags, content categories within a content type.
+ *
+ * Also adds news meta for classification by topic in Google
+ *
+ *  Corrected errors in original code in order to comply with Google news sitemap specifications http://www.google.com/schemas/sitemap-news/0.9/
+ */ 
+
+/** 
+ * creation of taxomony function not in Drupal 7 was in Drupal 6
+ */
+function taxonomy_node_get_terms_by_vocabulary($node, $vid, $key = 'tid') {
+  $result = db_query('SELECT t.tid, t.* FROM {taxonomy_term_data} t INNER JOIN {taxonomy_index} r ON r.tid = t.tid WHERE t.vid = :vid AND r.nid = :node_nid ORDER BY weight', array(':vid' => $vid, ':node_nid' => $node->nid));
+  return $result->fetchAll();
+}
+/**
+ * Implementation of hook_menu().
+ */
+function googlenews_menu() {
+  $items['googlenews.xml'] = array(
+    'page callback' => '_googlenews_getgooglenews',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/config/services/googlenews'] = array(
+    'title' => 'Google News sitemap',
+    'description' => 'Specify category types for the Google News sitemap.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('googlenews_admin_settings'),
+    'access arguments' => array('administer site configuration'),
+  );
+  
+     $items['admin/settings/googlenews'] = array(
+    'title' => 'Google News sitemap',
+    'description' => 'Specify meta tags to exlude for the Google News sitemap.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('googlenews_admin_settings'),
+    'access arguments' => array('administer site configuration'),
+  );
+     
+  return $items;
+}
+
+/**
+ * Generate the news feed.
+ */
+function _googlenews_getgooglenews() {
+  global $language_content;
+  $NEWS = TRUE;
+  $statcategories = array();
+  $tag_exclude = array();
+
+  $content = '<?xml version="1.0" encoding="UTF-8"?>';
+  $content .= '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"';
+  $content .= '  xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">';
+
+  $query = db_select('node', 'n');
+  $query->fields('n', array('nid', 'created', 'title'));
+  $query->condition('n.type', variable_get('googlenews_node_types', array_keys(node_type_get_names())));
+  $query->condition('n.status', NODE_PUBLISHED);
+  $query->condition('n.created', REQUEST_TIME - 172800, '>=');
+  $query->addTag('node_access');
+  $query->orderBy('n.created', 'DESC');
+  $query->range(0, 1000);
+  $nodes = $query->execute()->fetchAll();
+  
+        // Add keywords
+
+  $news_meta_exclude = variable_get('googlenews_meta_exclude', '');
+  $categories_allowed = variable_get('googlenews_categories_vocabs', '');
+  $categories_constant = variable_get('googlenews_categories_constant', ''); 
+//  $content .= 'excluded tags'. $news_meta_exclude;
+  if ($news_meta_exclude){
+      $news_meta_exclude = explode(',', $news_meta_exclude);
+  }
+ 
+   // Constant keywords for all nodes
+  if ($categories_constant){
+      $categories_constant = explode(',', $categories_constant);
+      foreach ($categories_constant as $cat) {
+        $statcategories[] = $cat;
+      }
+  } 
+
+  foreach ($nodes as $node) {
+      
+    $nodecat = node_load($node->nid);
+    $NEWS = TRUE;  // kick out of loop if excluded by keyword
+
+      // Categories from allowed vocabularies
+    if ($categories_allowed){
+        $categories = array();
+        foreach ($categories_allowed as $allowed) {
+           $terms = taxonomy_node_get_terms_by_vocabulary($nodecat, $allowed);
+         foreach ($terms as $term) {
+            if ($NEWS == FALSE){
+                break;
+            }
+            $categories[] = check_plain($term->name);
+      //debug     $content .= 'categorty term name' . $term->name;
+           if ($news_meta_exclude){
+               foreach ($news_meta_exclude as $exclude) {
+
+       // debug         $content .= ' categories exclude ' . $exclude . '\n ';
+
+                 if (strcmp($term->name,$exclude) == 0 ){
+                     $NEWS = FALSE;
+       //debug            $content .= 'categories false ' . $term->name;
+                 }
+               } //for each news exclude
+           } // if new_meta exclude
+          } // for each term
+      } // for each category
+     }  // if categories allowed
+    // Delete duplicates
+    $categories = array_unique($categories);
+     
+   if ($NEWS) {
+    $content .= '<url>';
+    $content .= '<loc>' . url('node/' . $node->nid, array('absolute' => TRUE)) . '</loc>';
+    $content .= '<news:news>';
+    $content .= '<news:publication>';
+     // $content .= '<n:name>' . variable_get('site_name', 'Drupal') . '</n:name>';
+    $content .= '<news:name>' . 'Economic Populist' . '</news:name>';
+    $content .= '<news:language>' . check_plain($language_content->language) . '</news:language>';
+    $content .= '</news:publication>';
+    $content .= '<news:publication_date>' . gmdate(DATE_W3C, $node->created) . '</news:publication_date>';
+    $content .= '<news:title>' . check_plain($node->title) . '</news:title>';
+    $content .= '<news:geo_locations>' . 'USA' . '</news:geo_locations>';
+    // add keywords    
+    $content .=  '<news:keywords>' . implode(', ', $categories) . implode(', ', $statcategories) . '</news:keywords>';
+    $content .= '</news:news>';
+    $content .= '</url>';
+   }  // end of it's news
+  }
+
+  $content .= '</urlset>';
+
+  drupal_add_http_header('Content-Type', 'text/xml; charset=utf-8');
+  print $content;
+}
+
+/**
+ * Form builder; administration settings.
+ */
+function googlenews_admin_settings() {
+  $node_types = node_type_get_names();
+  $form['googlenews_node_types'] = array(
+    '#type' => 'checkboxes',
+    '#title' => t('Select the content types to include in the <a href="@news-sitemap">news sitemap</a>', array('@news-sitemap' => url('googlenews.xml'))),
+    '#default_value' => variable_get('googlenews_node_types', array_keys($node_types)),
+    '#options' => $node_types,
+  );
+  $form['array_filter'] = array(
+    '#type' => 'value',
+    '#value' => TRUE,
+  );
+  
+    // Allow selection of vocabularies to use as categories
+  $vocabs = taxonomy_get_vocabularies();
+  foreach ($vocabs as $vid=>$vocab){
+    $vocabs_cats[$vid] = $vocab->name;
+  }
+
+  $form['googlenews_categories_vocabs'] = array(
+    '#type' => 'checkboxes',
+    '#title' => t('Select the vocabularies whose terms you wish to include as categories'),
+    '#default_value' => variable_get('googlenews_categories_vocabs', NULL),
+    '#options' => $vocabs_cats,
+  );
+
+  // Constant keywords
+  $form['googlenews_categories_constant'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Constant keywords'),
+    '#default_value' =>  variable_get('googlenews_categories_constant', ''),
+    '#size' => 60,
+    '#description' => t('Constant keywords that show for all articles (comma separated)')
+  );
+
+   // Constant keywords
+  $form['googlenews_meta_exclude'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Meta Tags to Exclude From Google News'),
+    '#default_value' =>  variable_get('googlenews_meta_exclude', ''),
+    '#size' => 60,
+    '#description' => t('Constant keywords that show for all articles (comma separated)')
+  );
+
+  return system_settings_form($form);
+}
