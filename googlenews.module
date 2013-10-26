@@ -5,7 +5,7 @@
  * Provides a Google News sitemap within your site using the url:
  * http://www.yoursite.com/googlenews.xml
  *
- * Modified from https://drupal.org/project/googlenews  7.x-1.4 (dev) by info@musemagic.com
+ * Modified from https://drupal.org/project/googlenews  7.x-1.4 (dev) by info   musemagic.com
  * 
  * Purpose to allow exlusion from Google news based on meta tags, content categories within a content type.
  *
