@@ -1,6 +1,6 @@
 -- SUMMARY --
 Modified Google News sitemap for Drupal 7.x
-info@musemagic.com
+info  musemagic.com
 Add Meta and category tags in the administration interface to exclude by category, topic and exclude meta from Google news site content.  This is in addition to the below original instructions
 
 
@@ -40,4 +40,4 @@ This module is distributed 'as is' and no warranties or support can be given.
 
 -- CONTACT --
 
-* Adam: <http://www.webopius.com>  gnews@webopius.com
+* Adam: <http://www.webopius.com>  gnews   webopius.com
